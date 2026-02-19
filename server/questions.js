@@ -1,3 +1,57 @@
+const AnthropicModule = require('@anthropic-ai/sdk')
+const Anthropic = AnthropicModule.default || AnthropicModule
+
+// Initialise client only when API key is present
+let anthropic = null
+if (process.env.ANTHROPIC_API_KEY) {
+  anthropic = new Anthropic()
+  console.log('[Claude] API key found — live question generation enabled')
+} else {
+  console.log('[Claude] No API key — using mock question bank')
+}
+
+const VIBE_DESCRIPTIONS = {
+  spicy: 'edgy, controversial, or personally revealing choices that make people squirm in a fun way',
+  funny: 'silly, absurd, or hilariously weird scenarios that make people laugh out loud',
+  deep:  'philosophical, existential, or meaningful questions about life, values, and identity',
+  weird: 'bizarre, surreal, and wonderfully strange scenarios that defy all logic',
+}
+
+async function generateQuestionWithClaude(vibes, history) {
+  const vibe = vibes[Math.floor(Math.random() * vibes.length)]
+
+  const historyNote = history.length > 0
+    ? `\n\nThese questions have already been used — do NOT repeat them:\n${history.slice(-20).join('\n')}`
+    : ''
+
+  const message = await anthropic.messages.create({
+    model: 'claude-opus-4-6',
+    max_tokens: 300,
+    system: 'You create questions for a "Would You Rather" party game. Respond with valid JSON only — no markdown, no explanation, nothing else.',
+    messages: [{
+      role: 'user',
+      content: `Generate one original "Would You Rather" question with a ${vibe} vibe: ${VIBE_DESCRIPTIONS[vibe]}.
+
+The two options must be genuinely difficult to choose between — both compelling, distinct, and memorable. Keep each option under 15 words.${historyNote}
+
+Respond with ONLY this JSON (no extra keys):
+{"optionA": "...", "optionB": "..."}`,
+    }],
+  })
+
+  const parsed = JSON.parse(message.content[0].text.trim())
+  if (!parsed.optionA || !parsed.optionB) throw new Error('Invalid response structure from Claude')
+
+  return {
+    text: `${parsed.optionA} OR ${parsed.optionB}`,
+    optionA: parsed.optionA,
+    optionB: parsed.optionB,
+    vibe,
+  }
+}
+
+// ─── Mock question bank (fallback when no API key) ───────────────────────────
+
 const QUESTIONS = {
   spicy: [
     { text: 'always-tell-truth-or-lie', optionA: 'Always tell the truth', optionB: 'Always lie', vibe: 'spicy' },
@@ -77,8 +131,20 @@ const QUESTIONS = {
   ],
 }
 
-// ═══ TO WIRE UP CLAUDE: Replace this function body with an Anthropic SDK call ═══
+// ─── Main export ──────────────────────────────────────────────────────────────
+
+// ═══ TO SWAP TO CLAUDE: set ANTHROPIC_API_KEY in server/.env — already wired ═
+
 async function generateQuestion(vibes, history) {
+  if (anthropic) {
+    try {
+      return await generateQuestionWithClaude(vibes, history)
+    } catch (err) {
+      console.error('[Claude] Question generation failed, falling back to mock:', err.message)
+    }
+  }
+
+  // Mock fallback
   const vibe = vibes[Math.floor(Math.random() * vibes.length)]
   const pool = QUESTIONS[vibe].filter(q => !history.includes(q.text))
   const candidates = pool.length ? pool : QUESTIONS[vibe] // cycle if exhausted
