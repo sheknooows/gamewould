@@ -95,7 +95,8 @@ export default function App() {
     })
 
     socket.on('game-started', () => {
-      setGameState(prev => ({ ...prev, screen: 'game' }))
+      // Don't switch screen yet — wait for round-started which includes the question.
+      // Switching here causes a black screen because currentQuestion is still null.
     })
 
     socket.on('round-started', ({ question }: { question: Question }) => {
